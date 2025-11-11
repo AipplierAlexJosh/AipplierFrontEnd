@@ -1,6 +1,13 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
 import {
   Download,
@@ -11,6 +18,15 @@ import {
   Trash2,
   UploadCloud,
 } from "lucide-react";
+import {
+  fetchSdeJobs,
+  fileToBase64,
+  getLatestResults,
+  getProgressFeed,
+  resetAgentSession,
+  triggerNextJob,
+  uploadResumeBundle,
+} from "@/lib/api";
 
 type ProgressStatus = "pending" | "success" | "error";
 
@@ -19,11 +35,34 @@ type ProgressEntry = {
   message: string;
   status?: ProgressStatus;
   timestamp?: string;
+  stage?: string;
+  source?: "backend" | "local";
 };
 
 type OutputLinks = {
-  processedResumeUrl?: string;
-  tailoredCoverLetterUrl?: string;
+  processedResumeBase64?: string;
+  tailoredCoverLetterBase64?: string;
+};
+
+const MAX_PROGRESS_ENTRIES = 5;
+
+const resolveStatus = (stage: string | undefined): ProgressStatus => {
+  if (!stage) {
+    return "pending";
+  }
+
+  const normalized = stage.toLowerCase();
+  if (normalized.includes("error") || normalized.includes("fail")) {
+    return "error";
+  }
+  if (
+    normalized.includes("complete") ||
+    normalized.includes("package") ||
+    normalized.includes("done")
+  ) {
+    return "success";
+  }
+  return "pending";
 };
 
 export default function WalkthroughContent() {
@@ -36,13 +75,30 @@ export default function WalkthroughContent() {
   const [outputs, setOutputs] = useState<OutputLinks>({});
   const [applicationUrl, setApplicationUrl] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
 
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resultsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pushProgressEntry = useCallback((entry: ProgressEntry) => {
+    setProgressLogs((current) => {
+      const filtered = current.filter((existing) => existing.id !== entry.id);
+      return [entry, ...filtered].slice(0, MAX_PROGRESS_ENTRIES);
+    });
+  }, []);
 
   useEffect(
     () => () => {
       if (copyTimerRef.current) {
         clearTimeout(copyTimerRef.current);
+      }
+      if (progressPollRef.current) {
+        clearInterval(progressPollRef.current);
+      }
+      if (resultsPollRef.current) {
+        clearInterval(resultsPollRef.current);
       }
     },
     []
@@ -53,35 +109,116 @@ export default function WalkthroughContent() {
     [resumeFile, projectFile]
   );
 
+  const processFile = (type: "resume" | "projects", file: File | null) => {
+    if (!file) {
+      return;
+    }
+
+    if (file.type !== "application/pdf") {
+      const message = "Please upload a PDF file.";
+      if (type === "resume") {
+        setResumeError(message);
+        setResumeFile(null);
+      } else {
+        setProjectError(message);
+        setProjectFile(null);
+      }
+      return;
+    }
+
+    if (type === "resume") {
+      setResumeFile(file);
+      setResumeError(null);
+    } else {
+      setProjectFile(file);
+      setProjectError(null);
+    }
+  };
+
   const handleFileSelect =
     (type: "resume" | "projects") => (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0] ?? null;
       event.target.value = "";
-
-      if (!file) {
-        return;
-      }
-
-      if (file.type !== "application/pdf") {
-        const message = "Please upload a PDF file.";
-        if (type === "resume") {
-          setResumeError(message);
-          setResumeFile(null);
-        } else {
-          setProjectError(message);
-          setProjectFile(null);
-        }
-        return;
-      }
-
-      if (type === "resume") {
-        setResumeFile(file);
-        setResumeError(null);
-      } else {
-        setProjectFile(file);
-        setProjectError(null);
-      }
+      processFile(type, file);
     };
+
+  const handleFileDrop =
+    (type: "resume" | "projects") => (file: File | null) => {
+      processFile(type, file);
+    };
+
+  const stopPolling = () => {
+    if (progressPollRef.current) {
+      clearInterval(progressPollRef.current);
+      progressPollRef.current = null;
+    }
+    if (resultsPollRef.current) {
+      clearInterval(resultsPollRef.current);
+      resultsPollRef.current = null;
+    }
+  };
+
+  const startPolling = () => {
+    if (!progressPollRef.current) {
+      progressPollRef.current = setInterval(async () => {
+        try {
+          const data = await getProgressFeed();
+          setProgressLogs((current) => {
+            const backendEntries = data
+              .map((entry, index) => ({
+                id: `${entry.timestamp ?? "unknown"}-${entry.stage ?? index}`,
+                message: entry.message,
+                status: resolveStatus(entry.stage),
+                timestamp: entry.timestamp,
+                stage: entry.stage,
+                source: "backend" as const,
+              }))
+              .sort((a, b) => {
+                const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return timeB - timeA;
+              });
+
+            const localEntries = current.filter(
+              (entry) => entry.source === "local"
+            );
+            const combined = [...backendEntries, ...localEntries];
+            const deduped: ProgressEntry[] = [];
+            for (const entry of combined) {
+              if (!deduped.some((existing) => existing.id === entry.id)) {
+                deduped.push(entry);
+              }
+              if (deduped.length >= MAX_PROGRESS_ENTRIES) {
+                break;
+              }
+            }
+            return deduped;
+          });
+        } catch (error) {
+          console.error("Failed to fetch progress", error);
+        }
+      }, 2000);
+    }
+
+    if (!resultsPollRef.current) {
+      resultsPollRef.current = setInterval(async () => {
+        try {
+          const latest = await getLatestResults();
+          if (latest) {
+            setOutputs({
+              processedResumeBase64: latest.resumePdfB64,
+              tailoredCoverLetterBase64: latest.coverLetterPdfB64,
+            });
+            setApplicationUrl(latest.applyUrl ?? "");
+            setIsApplying(false);
+            stopPolling();
+          }
+        } catch (error) {
+          console.error("Failed to fetch results", error);
+        }
+      }, 2500);
+    }
+  };
 
   const handleRemoveFile = (type: "resume" | "projects") => {
     if (type === "resume") {
@@ -93,19 +230,76 @@ export default function WalkthroughContent() {
     }
   };
 
-  const handleStartApplying = () => {
-    if (!filesReady) {
+  const startJobRun = async () => {
+    if (!resumeFile || !projectFile) {
+      setApplyError(
+        "Upload both resume and related projects PDFs before applying."
+      );
       return;
     }
 
+    setApplyError(null);
+    stopPolling();
+
     setIsApplying(true);
-    setProgressLogs([]);
     setOutputs({});
-    // TODO: integrate API call to backend auto-applier here.
-    // Use setProgressLogs([...]) and setOutputs(...) when backend events arrive.
+    setApplicationUrl("");
+    setProgressLogs([]);
+    pushProgressEntry({
+      id: `start-${Date.now()}`,
+      message: "Submitting documents to auto-applier…",
+      status: "pending",
+      timestamp: new Date().toISOString(),
+      stage: "apply_start",
+      source: "local",
+    });
+
+    try {
+      await resetAgentSession({
+        clearJobs: false,
+        clearResume: false,
+        reloadJobs: false,
+      });
+
+      const [resumePdfB64, projectsPdfB64] = await Promise.all([
+        fileToBase64(resumeFile),
+        fileToBase64(projectFile),
+      ]);
+
+      await uploadResumeBundle({ resumePdfB64, projectsPdfB64 });
+      const { runId } = await triggerNextJob();
+      setLastRunId(runId);
+      pushProgressEntry({
+        id: `run-${runId}`,
+        message: `Agent run ${runId.slice(0, 8)} started.`,
+        status: "pending",
+        timestamp: new Date().toISOString(),
+        stage: "run_started",
+        source: "local",
+      });
+      startPolling();
+    } catch (error) {
+      console.error(error);
+      setApplyError(
+        error instanceof Error ? error.message : "Failed to start applying"
+      );
+      setIsApplying(false);
+    }
+  };
+
+  const handleStartApplying = async () => {
+    if (!filesReady) {
+      setApplyError(
+        "Upload both resume and related projects PDFs before applying."
+      );
+      return;
+    }
+
+    await startJobRun();
   };
 
   const handleResetWorkspace = () => {
+    stopPolling();
     setResumeFile(null);
     setResumeError(null);
     setProjectFile(null);
@@ -115,13 +309,42 @@ export default function WalkthroughContent() {
     setOutputs({});
     setApplicationUrl("");
     setCopyFeedback("");
+    setApplyError(null);
+    setLastRunId(null);
+    resetAgentSession({
+      clearJobs: false,
+      clearResume: true,
+      reloadJobs: false,
+    }).catch((error) => {
+      console.error("Failed to reset state", error);
+    });
   };
 
-  const handleDownload = (url?: string) => {
-    if (!url) {
+  const handleDownload = (base64?: string, filename?: string) => {
+    if (!base64) {
       return;
     }
-    window.open(url, "_blank", "noopener,noreferrer");
+    try {
+      const binary = atob(base64);
+      const length = binary.length;
+      const bytes = new Uint8Array(length);
+      for (let i = 0; i < length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename ?? "document.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Failed to download PDF", error);
+    }
   };
 
   const handleCopyLink = async () => {
@@ -148,11 +371,19 @@ export default function WalkthroughContent() {
     if (isApplying) {
       return "Application in progress. Streaming updates from backend.";
     }
+    if (outputs.processedResumeBase64 || outputs.tailoredCoverLetterBase64) {
+      return "Application package ready. Review downloads before submitting.";
+    }
     if (filesReady) {
       return "Ready to apply. Backend will start once you trigger.";
     }
     return "Upload both PDFs to enable the apply flow.";
-  }, [filesReady, isApplying]);
+  }, [
+    filesReady,
+    isApplying,
+    outputs.processedResumeBase64,
+    outputs.tailoredCoverLetterBase64,
+  ]);
 
   const progressEmptyLabel = useMemo(() => {
     if (isApplying) {
@@ -167,17 +398,54 @@ export default function WalkthroughContent() {
         id: "processedResume",
         label: "Processed resume PDF",
         description: "Cleaned with tailored bullet points.",
-        url: outputs.processedResumeUrl,
+        base64: outputs.processedResumeBase64,
       },
       {
         id: "tailoredCoverLetter",
         label: "Tailored cover letter PDF",
         description: "Generated draft based on job requirements.",
-        url: outputs.tailoredCoverLetterUrl,
+        base64: outputs.tailoredCoverLetterBase64,
       },
     ],
     [outputs]
   );
+
+  useEffect(() => {
+    return () => {
+      stopPolling();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleJobFetch = async () => {
+    try {
+      const jobs = await fetchSdeJobs();
+      pushProgressEntry({
+        id: `jobs-${Date.now()}`,
+        message: `Fetched ${jobs.jobs.length} jobs from the agent service.`,
+        status: "success",
+        timestamp: new Date().toISOString(),
+        stage: "jobs_fetch",
+        source: "local",
+      });
+    } catch (error) {
+      pushProgressEntry({
+        id: `jobs-error-${Date.now()}`,
+        message:
+          error instanceof Error
+            ? `Failed to fetch jobs: ${error.message}`
+            : "Failed to fetch jobs.",
+        status: "error",
+        timestamp: new Date().toISOString(),
+        stage: "jobs_fetch_error",
+        source: "local",
+      });
+    }
+  };
+
+  const handleNextJob = async () => {
+    await startJobRun();
+  };
 
   return (
     <article className="document">
@@ -199,6 +467,7 @@ export default function WalkthroughContent() {
             file={resumeFile}
             error={resumeError}
             onSelect={handleFileSelect("resume")}
+            onDrop={handleFileDrop("resume")}
             onClear={() => handleRemoveFile("resume")}
           />
           <UploadSlot
@@ -208,6 +477,7 @@ export default function WalkthroughContent() {
             file={projectFile}
             error={projectError}
             onSelect={handleFileSelect("projects")}
+            onDrop={handleFileDrop("projects")}
             onClear={() => handleRemoveFile("projects")}
           />
         </div>
@@ -233,9 +503,9 @@ export default function WalkthroughContent() {
             <button
               type="button"
               className="ghost-button"
-              onClick={() => undefined}
+              onClick={handleJobFetch}
             >
-              Fetch SDE jobs posted in past 24h
+              Refresh job cache
             </button>
             <button
               type="button"
@@ -282,6 +552,11 @@ export default function WalkthroughContent() {
                       {formatTimestamp(entry.timestamp)}
                     </span>
                   ) : null}
+                  {entry.stage ? (
+                    <span className="progress-entry__stage">
+                      Stage: {entry.stage}
+                    </span>
+                  ) : null}
                 </div>
               );
             })
@@ -305,20 +580,33 @@ export default function WalkthroughContent() {
                 <div className="download-item__meta">
                   <span>{item.label}</span>
                   <span className="download-item__status">
-                    {item.url ? "Ready to download" : "Pending from backend"}
+                    {item.base64 ? "Ready to download" : "Pending from backend"}
                   </span>
                 </div>
                 <button
                   type="button"
                   className="ghost-button"
-                  onClick={() => handleDownload(item.url)}
-                  disabled={!item.url}
+                  onClick={() => handleDownload(item.base64, `${item.id}.pdf`)}
+                  disabled={!item.base64}
                 >
                   <Download size={16} />
                   Download
                 </button>
               </div>
             ))}
+            <button
+              type="button"
+              className="pill-button"
+              disabled={
+                isApplying ||
+                !filesReady ||
+                !outputs.processedResumeBase64 ||
+                !outputs.tailoredCoverLetterBase64
+              }
+              onClick={handleNextJob}
+            >
+              Start next job
+            </button>
           </div>
         </section>
 
@@ -372,6 +660,7 @@ type UploadSlotProps = {
   file: File | null;
   error: string | null;
   onSelect: (event: ChangeEvent<HTMLInputElement>) => void;
+  onDrop: (file: File | null) => void;
   onClear: () => void;
 };
 
@@ -382,10 +671,53 @@ function UploadSlot({
   file,
   error,
   onSelect,
+  onDrop,
   onClear,
 }: UploadSlotProps) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    if (!isDragging) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDropEvent = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(false);
+    const droppedFile = event.dataTransfer.files?.[0] ?? null;
+    onDrop(droppedFile);
+    event.dataTransfer.clearData();
+  };
+
   return (
-    <div className={clsx("upload-slot", file && "upload-slot--ready")}>
+    <div
+      className={clsx(
+        "upload-slot",
+        file && "upload-slot--ready",
+        isDragging && "upload-slot--dragging"
+      )}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDropEvent}
+    >
       <input
         id={id}
         type="file"

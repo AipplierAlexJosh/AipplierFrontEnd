@@ -298,6 +298,12 @@ button:disabled {
   background: rgba(249, 115, 22, 0.08);
 }
 
+.upload-slot--dragging {
+  border-color: rgba(14, 165, 233, 0.9);
+  background: rgba(14, 165, 233, 0.12);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+}
+
 .upload-slot label {
   display: flex;
   flex-direction: column;
@@ -364,6 +370,12 @@ button:disabled {
   color: var(--fg-muted);
 }
 
+.apply-error {
+  margin-top: 12px;
+  color: #dc2626;
+  font-size: 0.9rem;
+}
+
 .progress-feed {
   display: flex;
   flex-direction: column;
@@ -418,10 +430,20 @@ button:disabled {
   color: var(--fg-soft);
 }
 
+.progress-entry__stage {
+  font-size: 0.8rem;
+  color: var(--fg-soft);
+}
+
 .download-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.download-list .pill-button {
+  align-self: flex-start;
+  margin-top: 8px;
 }
 
 .download-item {
