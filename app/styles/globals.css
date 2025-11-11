@@ -12,7 +12,6 @@
   --accent-border: rgba(249, 115, 22, 0.32);
   --teal: #0ea5e9;
   --sidebar-width: 260px;
-  --comments-width: 280px;
   --radius-lg: 20px;
   --radius-md: 12px;
   --radius-sm: 8px;
@@ -56,7 +55,7 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--comments-width);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
 }
@@ -94,103 +93,29 @@ button:disabled {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   overflow-y: auto;
-  padding-right: 8px;
+  padding-right: 6px;
 }
 
-.sidebar__section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 0.9rem;
-  font-weight: 600;
+.sidebar__nav--empty {
   color: var(--fg-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
-.icon-button {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background-color: rgba(15, 23, 42, 0.05);
-  transition: border-color 0.2s ease, background-color 0.2s ease;
-}
-
-.icon-button:hover {
-  border-color: rgba(15, 23, 42, 0.08);
-  background-color: rgba(15, 23, 42, 0.08);
-}
-
-.sidebar__pages,
-.sidebar__section-list {
-  list-style: none;
+.sidebar__nav--empty h2 {
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.sidebar__link a {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  color: var(--fg-muted);
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.sidebar__link a:hover {
-  background-color: rgba(15, 23, 42, 0.06);
+  font-size: 1rem;
   color: var(--fg);
 }
 
-.sidebar__link--active a {
-  background-color: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
+.sidebar__nav--empty p {
+  margin: 0;
+  line-height: 1.5;
 }
 
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.dot--amber {
-  background-color: var(--accent);
-}
-
-.sidebar__section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sidebar__section-toggle {
-  background: none;
-  border: none;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-  color: var(--fg);
-}
-
-.chevron {
-  transition: transform 0.25s ease;
-}
-
-.chevron--open {
-  transform: rotate(180deg);
+.sidebar__hint {
+  font-size: 0.85rem;
+  color: var(--fg-soft);
 }
 
 .workspace {
@@ -575,102 +500,9 @@ button:disabled {
   }
 }
 
-.comments-panel {
-  background-color: #ffffff;
-  border-left: 1px solid rgba(15, 23, 42, 0.06);
-  padding: 28px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.comments-panel__header {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  color: var(--fg-muted);
-  letter-spacing: 0.02em;
-}
-
-.comments {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  overflow-y: auto;
-}
-
-.comments--empty {
-  align-items: center;
-  justify-content: center;
-}
-
-.empty-thread {
-  max-width: 240px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  color: var(--fg-muted);
-}
-
-.empty-thread__badge {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
-  display: grid;
-  place-items: center;
-  margin: 0 auto;
-  background: rgba(249, 115, 22, 0.12);
-  color: var(--accent);
-}
-
-.comment {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background-color: rgba(15, 23, 42, 0.03);
-  border-radius: var(--radius-md);
-  padding: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.04);
-}
-
-.comment__meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.85rem;
-  color: var(--fg-soft);
-}
-
-.comment h3 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.comment__reply {
-  margin-top: 8px;
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: none;
-  background: none;
-  color: var(--accent);
-  font-weight: 600;
-  padding: 4px 0;
-}
-
 @media (max-width: 1200px) {
   .app-shell {
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  }
-
-  .comments-panel {
-    display: none;
   }
 }
 

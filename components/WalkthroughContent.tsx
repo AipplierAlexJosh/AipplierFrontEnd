@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
@@ -9,7 +9,7 @@ import {
   Loader2,
   Play,
   Trash2,
-  UploadCloud
+  UploadCloud,
 } from "lucide-react";
 
 type ProgressStatus = "pending" | "success" | "error";
@@ -29,8 +29,8 @@ type OutputLinks = {
 export default function WalkthroughContent() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
-  const [jobFile, setJobFile] = useState<File | null>(null);
-  const [jobError, setJobError] = useState<string | null>(null);
+  const [projectFile, setProjectFile] = useState<File | null>(null);
+  const [projectError, setProjectError] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const [progressLogs, setProgressLogs] = useState<ProgressEntry[]>([]);
   const [outputs, setOutputs] = useState<OutputLinks>({});
@@ -48,11 +48,13 @@ export default function WalkthroughContent() {
     []
   );
 
-  const filesReady = useMemo(() => Boolean(resumeFile && jobFile), [resumeFile, jobFile]);
+  const filesReady = useMemo(
+    () => Boolean(resumeFile && projectFile),
+    [resumeFile, projectFile]
+  );
 
   const handleFileSelect =
-    (type: "resume" | "job") =>
-    (event: ChangeEvent<HTMLInputElement>) => {
+    (type: "resume" | "projects") => (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0] ?? null;
       event.target.value = "";
 
@@ -66,8 +68,8 @@ export default function WalkthroughContent() {
           setResumeError(message);
           setResumeFile(null);
         } else {
-          setJobError(message);
-          setJobFile(null);
+          setProjectError(message);
+          setProjectFile(null);
         }
         return;
       }
@@ -76,18 +78,18 @@ export default function WalkthroughContent() {
         setResumeFile(file);
         setResumeError(null);
       } else {
-        setJobFile(file);
-        setJobError(null);
+        setProjectFile(file);
+        setProjectError(null);
       }
     };
 
-  const handleRemoveFile = (type: "resume" | "job") => {
+  const handleRemoveFile = (type: "resume" | "projects") => {
     if (type === "resume") {
       setResumeFile(null);
       setResumeError(null);
     } else {
-      setJobFile(null);
-      setJobError(null);
+      setProjectFile(null);
+      setProjectError(null);
     }
   };
 
@@ -106,8 +108,8 @@ export default function WalkthroughContent() {
   const handleResetWorkspace = () => {
     setResumeFile(null);
     setResumeError(null);
-    setJobFile(null);
-    setJobError(null);
+    setProjectFile(null);
+    setProjectError(null);
     setIsApplying(false);
     setProgressLogs([]);
     setOutputs({});
@@ -165,14 +167,14 @@ export default function WalkthroughContent() {
         id: "processedResume",
         label: "Processed resume PDF",
         description: "Cleaned with tailored bullet points.",
-        url: outputs.processedResumeUrl
+        url: outputs.processedResumeUrl,
       },
       {
         id: "tailoredCoverLetter",
         label: "Tailored cover letter PDF",
         description: "Generated draft based on job requirements.",
-        url: outputs.tailoredCoverLetterUrl
-      }
+        url: outputs.tailoredCoverLetterUrl,
+      },
     ],
     [outputs]
   );
@@ -184,7 +186,8 @@ export default function WalkthroughContent() {
           <div>
             <h2>Prepare your documents</h2>
             <p className="panel__subtitle">
-              Upload a resume PDF and the job description PDF to kick off the auto-applier.
+              Upload a resume PDF and the related projects PDF to kick off the
+              auto-applier.
             </p>
           </div>
         </header>
@@ -199,13 +202,13 @@ export default function WalkthroughContent() {
             onClear={() => handleRemoveFile("resume")}
           />
           <UploadSlot
-            id="job-upload"
-            label="Job description PDF"
-            description="Posting details that guide the tailoring process."
-            file={jobFile}
-            error={jobError}
-            onSelect={handleFileSelect("job")}
-            onClear={() => handleRemoveFile("job")}
+            id="projects-upload"
+            label="Related projects PDF"
+            description="Supporting material the AI can reference for tailoring."
+            file={projectFile}
+            error={projectError}
+            onSelect={handleFileSelect("projects")}
+            onClear={() => handleRemoveFile("projects")}
           />
         </div>
       </section>
@@ -220,14 +223,28 @@ export default function WalkthroughContent() {
               disabled={!filesReady || isApplying}
               onClick={handleStartApplying}
             >
-              {isApplying ? <Loader2 className="spinner" size={16} /> : <Play size={16} />}
+              {isApplying ? (
+                <Loader2 className="spinner" size={16} />
+              ) : (
+                <Play size={16} />
+              )}
               {isApplying ? "Applying…" : "Start applying"}
             </button>
             <button
               type="button"
               className="ghost-button"
+              onClick={() => undefined}
+            >
+              Fetch SDE jobs posted in past 24h
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
               onClick={handleResetWorkspace}
-              disabled={isApplying || (!resumeFile && !jobFile && progressLogs.length === 0)}
+              disabled={
+                isApplying ||
+                (!resumeFile && !projectFile && progressLogs.length === 0)
+              }
             >
               Clear workspace
             </button>
@@ -240,7 +257,8 @@ export default function WalkthroughContent() {
           <div>
             <h2>Progress feed</h2>
             <p className="panel__subtitle">
-              Stream backend updates (parsing, tailoring, QA) to keep applicants informed.
+              Stream backend updates (parsing, tailoring, QA) to keep applicants
+              informed.
             </p>
           </div>
         </header>
@@ -253,7 +271,10 @@ export default function WalkthroughContent() {
               return (
                 <div key={entry.id} className="progress-entry">
                   <div className="progress-entry__headline">
-                    <span className={clsx("status-dot", `status-dot--${status}`)} aria-hidden="true" />
+                    <span
+                      className={clsx("status-dot", `status-dot--${status}`)}
+                      aria-hidden="true"
+                    />
                     <span>{entry.message}</span>
                   </div>
                   {entry.timestamp ? (
@@ -273,7 +294,9 @@ export default function WalkthroughContent() {
           <header className="panel__header">
             <div>
               <h2>Download PDFs</h2>
-              <p className="panel__subtitle">Expose download links once processing is complete.</p>
+              <p className="panel__subtitle">
+                Expose download links once processing is complete.
+              </p>
             </div>
           </header>
           <div className="download-list">
@@ -304,7 +327,8 @@ export default function WalkthroughContent() {
             <div>
               <h2>Application link</h2>
               <p className="panel__subtitle">
-                Paste the final URL returned by the backend so the applicant can submit manually.
+                Paste the final URL returned by the backend so the applicant can
+                submit manually.
               </p>
             </div>
           </header>
@@ -331,7 +355,9 @@ export default function WalkthroughContent() {
               <LinkIcon size={16} />
               Copy link
             </button>
-            {copyFeedback ? <span className="copy-feedback">{copyFeedback}</span> : null}
+            {copyFeedback ? (
+              <span className="copy-feedback">{copyFeedback}</span>
+            ) : null}
           </div>
         </section>
       </section>
@@ -349,10 +375,24 @@ type UploadSlotProps = {
   onClear: () => void;
 };
 
-function UploadSlot({ id, label, description, file, error, onSelect, onClear }: UploadSlotProps) {
+function UploadSlot({
+  id,
+  label,
+  description,
+  file,
+  error,
+  onSelect,
+  onClear,
+}: UploadSlotProps) {
   return (
     <div className={clsx("upload-slot", file && "upload-slot--ready")}>
-      <input id={id} type="file" accept="application/pdf" onChange={onSelect} hidden />
+      <input
+        id={id}
+        type="file"
+        accept="application/pdf"
+        onChange={onSelect}
+        hidden
+      />
       <label htmlFor={id}>
         <div className="upload-slot__prompt">
           <UploadCloud size={24} />
@@ -375,7 +415,9 @@ function UploadSlot({ id, label, description, file, error, onSelect, onClear }: 
           <FileBadge size={24} />
           <div className="upload-slot__info">
             <span>{file.name}</span>
-            <span className="upload-slot__meta">{formatFileSize(file.size)}</span>
+            <span className="upload-slot__meta">
+              {formatFileSize(file.size)}
+            </span>
           </div>
           <button
             type="button"
@@ -418,7 +460,6 @@ function formatTimestamp(timestamp: string) {
 
   return parsed.toLocaleTimeString(undefined, {
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
   });
 }
-

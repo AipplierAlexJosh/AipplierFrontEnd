@@ -10,9 +10,9 @@ export default function WorkspaceHeader() {
     <header className="workspace-header">
       <div>
         <div className="breadcrumb">
-          Product Management <span aria-hidden="true">•</span> Walkthrough
+          Aipplier <span aria-hidden="true">•</span> Auto apply workspace
         </div>
-        <h1>Walkthrough</h1>
+        <h1>Aipplier</h1>
       </div>
       <div className="workspace-header__actions">
         <button

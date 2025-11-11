@@ -2,7 +2,6 @@
 
 import SidebarNav from "@/components/SidebarNav";
 import WorkspaceHeader from "@/components/WorkspaceHeader";
-import CommentsPanel from "@/components/CommentsPanel";
 import WalkthroughContent from "@/components/WalkthroughContent";
 
 export default function Home() {
@@ -13,7 +12,6 @@ export default function Home() {
         <WorkspaceHeader />
         <WalkthroughContent />
       </main>
-      <CommentsPanel />
     </div>
   );
 }
