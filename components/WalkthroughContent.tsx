@@ -19,13 +19,14 @@ import {
   UploadCloud,
 } from "lucide-react";
 import {
+  downloadResultPdf,
   fetchSdeJobs,
-  fileToBase64,
   getLatestResults,
   getProgressFeed,
   resetAgentSession,
   triggerNextJob,
   uploadResumeBundle,
+  type ResultsPayload,
 } from "@/lib/api";
 
 type ProgressStatus = "pending" | "success" | "error";
@@ -37,11 +38,6 @@ type ProgressEntry = {
   timestamp?: string;
   stage?: string;
   source?: "backend" | "local";
-};
-
-type OutputLinks = {
-  processedResumeBase64?: string;
-  tailoredCoverLetterBase64?: string;
 };
 
 const MAX_PROGRESS_ENTRIES = 5;
@@ -72,7 +68,7 @@ export default function WalkthroughContent() {
   const [projectError, setProjectError] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const [progressLogs, setProgressLogs] = useState<ProgressEntry[]>([]);
-  const [outputs, setOutputs] = useState<OutputLinks>({});
+  const [latestResult, setLatestResult] = useState<ResultsPayload | null>(null);
   const [applicationUrl, setApplicationUrl] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
   const [applyError, setApplyError] = useState<string | null>(null);
@@ -205,10 +201,7 @@ export default function WalkthroughContent() {
         try {
           const latest = await getLatestResults();
           if (latest) {
-            setOutputs({
-              processedResumeBase64: latest.resumePdfB64,
-              tailoredCoverLetterBase64: latest.coverLetterPdfB64,
-            });
+            setLatestResult(latest);
             setApplicationUrl(latest.applyUrl ?? "");
             setIsApplying(false);
             stopPolling();
@@ -242,7 +235,7 @@ export default function WalkthroughContent() {
     stopPolling();
 
     setIsApplying(true);
-    setOutputs({});
+    setLatestResult(null);
     setApplicationUrl("");
     setProgressLogs([]);
     pushProgressEntry({
@@ -261,12 +254,7 @@ export default function WalkthroughContent() {
         reloadJobs: false,
       });
 
-      const [resumePdfB64, projectsPdfB64] = await Promise.all([
-        fileToBase64(resumeFile),
-        fileToBase64(projectFile),
-      ]);
-
-      await uploadResumeBundle({ resumePdfB64, projectsPdfB64 });
+      await uploadResumeBundle({ resume: resumeFile, projects: projectFile });
       const { runId } = await triggerNextJob();
       setLastRunId(runId);
       pushProgressEntry({
@@ -306,7 +294,7 @@ export default function WalkthroughContent() {
     setProjectError(null);
     setIsApplying(false);
     setProgressLogs([]);
-    setOutputs({});
+    setLatestResult(null);
     setApplicationUrl("");
     setCopyFeedback("");
     setApplyError(null);
@@ -320,30 +308,27 @@ export default function WalkthroughContent() {
     });
   };
 
-  const handleDownload = (base64?: string, filename?: string) => {
-    if (!base64) {
+  const handleDownloadResult = async (kind: "resume" | "cover-letter") => {
+    if (!latestResult) {
       return;
     }
     try {
-      const binary = atob(base64);
-      const length = binary.length;
-      const bytes = new Uint8Array(length);
-      for (let i = 0; i < length; i += 1) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], { type: "application/pdf" });
+      const blob = await downloadResultPdf(latestResult.jobId, kind);
       const url = URL.createObjectURL(blob);
-
       const link = document.createElement("a");
       link.href = url;
-      link.download = filename ?? "document.pdf";
+      link.download = `${
+        kind === "resume" ? "processed-resume" : "tailored-cover-letter"
+      }-${latestResult.jobId}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error("Failed to download PDF", error);
+      console.error(`Failed to download ${kind}`, error);
+      setApplyError(
+        error instanceof Error ? error.message : `Failed to download ${kind}`
+      );
     }
   };
 
@@ -371,19 +356,14 @@ export default function WalkthroughContent() {
     if (isApplying) {
       return "Application in progress. Streaming updates from backend.";
     }
-    if (outputs.processedResumeBase64 || outputs.tailoredCoverLetterBase64) {
+    if (latestResult) {
       return "Application package ready. Review downloads before submitting.";
     }
     if (filesReady) {
       return "Ready to apply. Backend will start once you trigger.";
     }
     return "Upload both PDFs to enable the apply flow.";
-  }, [
-    filesReady,
-    isApplying,
-    outputs.processedResumeBase64,
-    outputs.tailoredCoverLetterBase64,
-  ]);
+  }, [filesReady, isApplying, latestResult]);
 
   const progressEmptyLabel = useMemo(() => {
     if (isApplying) {
@@ -398,16 +378,16 @@ export default function WalkthroughContent() {
         id: "processedResume",
         label: "Processed resume PDF",
         description: "Cleaned with tailored bullet points.",
-        base64: outputs.processedResumeBase64,
+        kind: "resume" as const,
       },
       {
         id: "tailoredCoverLetter",
         label: "Tailored cover letter PDF",
         description: "Generated draft based on job requirements.",
-        base64: outputs.tailoredCoverLetterBase64,
+        kind: "cover-letter" as const,
       },
     ],
-    [outputs]
+    []
   );
 
   useEffect(() => {
@@ -580,14 +560,16 @@ export default function WalkthroughContent() {
                 <div className="download-item__meta">
                   <span>{item.label}</span>
                   <span className="download-item__status">
-                    {item.base64 ? "Ready to download" : "Pending from backend"}
+                    {latestResult
+                      ? "Ready to download"
+                      : "Pending from backend"}
                   </span>
                 </div>
                 <button
                   type="button"
                   className="ghost-button"
-                  onClick={() => handleDownload(item.base64, `${item.id}.pdf`)}
-                  disabled={!item.base64}
+                  onClick={() => handleDownloadResult(item.kind)}
+                  disabled={!latestResult}
                 >
                   <Download size={16} />
                   Download
@@ -597,12 +579,7 @@ export default function WalkthroughContent() {
             <button
               type="button"
               className="pill-button"
-              disabled={
-                isApplying ||
-                !filesReady ||
-                !outputs.processedResumeBase64 ||
-                !outputs.tailoredCoverLetterBase64
-              }
+              disabled={isApplying || !filesReady || !latestResult}
               onClick={handleNextJob}
             >
               Start next job

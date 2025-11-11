@@ -39,16 +39,20 @@ export async function fileToBase64(file: File): Promise<string> {
 }
 
 export async function uploadResumeBundle(payload: {
-  resumePdfB64: string;
-  projectsPdfB64: string;
+  resume: File;
+  projects: File;
   resumeText?: string;
 }) {
+  const formData = new FormData();
+  formData.append("resume", payload.resume, payload.resume.name);
+  formData.append("projects", payload.projects, payload.projects.name);
+  if (payload.resumeText) {
+    formData.append("resumeText", payload.resumeText);
+  }
+
   const response = await fetch(`${AGENT_BASE_URL}/api/uploadResume`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
+    body: formData
   });
 
   if (!response.ok) {
@@ -103,6 +107,22 @@ export async function getLatestResults(): Promise<ResultsPayload | null> {
   const data = (await response.json()) as { results?: ResultsPayload[] };
   const [latest] = data.results ?? [];
   return latest ?? null;
+}
+
+export async function downloadResultPdf(
+  jobId: string,
+  kind: "resume" | "cover-letter"
+): Promise<Blob> {
+  const response = await fetch(`${AGENT_BASE_URL}/api/results/${encodeURIComponent(jobId)}/${kind}`, {
+    method: "GET"
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Unable to download ${kind}`);
+  }
+
+  return await response.blob();
 }
 
 export async function resetAgentSession(options?: {
